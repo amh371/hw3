@@ -1,0 +1,315 @@
+---
+title: "Computational Social Science Homework 3: Natural language processing"
+author: "Your name here"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+# Do not edit this chunk
+
+# The following lines define how the output of code chunks should behave
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(error = TRUE)
+
+# Required packages
+# You should have these from previous homeworks and lecture slides, but 
+# please install any that are missing
+library(rmarkdown)
+library(tidyverse)
+library(knitr)
+library(stringr)
+library(tidytext)
+library(word2vec)
+library(stm)
+library(ggplot2)
+library(viridis)
+library(parallel)
+library(reshape2)
+library(magrittr)
+
+set.seed(10980) # Setting random seed
+```
+
+# Instructions
+
+This assignment is designed to build your familiarity with the natural language processing techniques covered in class. As in the previous assignments, it will involve a combination of short written answers and coding in R. All answers should be written in this document. *Please write answers to written questions outside of the code cells rather than as comments.*
+
+### Requirements
+You should be viewing this document in RStudio. If you have not done so already, make sure to install the required packages (see initial chunk). You can do this by clicking the ``Install`` button in the Packages tab in the lower-right corner of RStudio and following the directions on the installation menu. You can also install packages by entering ``install.packages(x)`` into the R Console, where ``x`` is the name of the package.
+
+### Submitting the homework
+Once you have finished the assignment please complete the following steps to submit it:
+
+1. Click on the ``Knit`` menu at the top of the screen and select ``Knit to HTML``. This will execute the all of the code and render the RMarkdown document in HTML. Verify that this document contains all of your answers and that none of the chunks produce error messages.
+2. Add this document *and* the HTML file to Github. Use ``Homework submitted`` as your main commit message.
+3. Push the commit to Github.
+4. Visit the Github repository in your browser and verify that the final version of both files has been correctly uploaded.
+
+# **Part I: From text to vector representations**
+
+The data consist of a set of tweets from 12 prominent politicians in the United States, 6 Democrats and 6 Republicans. The data cover the period from 2020 to late 2021. The entire timeline for each politician was collected (Twitter provides the ~3200 most recent tweets) but the dataset has been filtered to contain tweets from 2020 onwards. Note that politicians who tweet very frequently might not have any tweets for 2020 (i.e. if they wrote more than 3200 tweets in 2021).
+
+*Please make sure to run the chunk above to load the necessary packages for this assignment. You may need to install some of the packages if you have not done so already* 
+
+Once you have done this, run this chunk to load the data. The regular expressions should remove hashtags, mentions, and URLs, as well as exact duplicates.
+```{r loading data, echo=FALSE, tidy=TRUE, eval=TRUE, include=FALSE}
+data <- read_csv('data/politics_twitter.csv')
+data <- data %>% 
+    mutate(text = gsub("#[A-Za-z0-9]+|@[A-Za-z0-9]", "", text)) %>% # Removing hashtags and mentions
+    mutate(text = gsub("(http[^ ]*)|(www.[^ ]*)", "", text)) %>% # Removing URLs
+    distinct(text, .keep_all =TRUE) # Removing duplicates
+print(unique(data$screen_name)) # This shows the screen names
+```
+
+### Downsampling data (Optional)
+I encourage you to attempt this assignment using the full version of the dataset. If you find that your computer is struggling due to the size of the data (RStudio is crashing, overheating, running out of memory, etc.), then uncomment and run the cell below to take a random sample of the data. You may change `n` to be smaller or larger as necessary.
+
+*Even if you plan to use the full dataset, I would recommend using a sub-sample for testing your code. Once you have answered all questions you can go back and run the code with all the data.*
+```{r sampling, echo=FALSE, tidy=TRUE, eval=TRUE, include=FALSE}
+#n <- 5000
+#data <- sample_n(data, n)
+```
+
+### Questions
+Q.1 Before analyzing the language, let's take a look at the dataset to see what it contains. Please write code to do the following.
+
+a. Use group_by and summarize to show the number of tweets they each politician wrote.
+
+b. Use group_by and summarize to print the median number of tweets per politician for each month and year in the dataset. The results should show a single value for each month-year pair.
+```{r q1, echo=FALSE, tidy=TRUE}
+# a
+
+# b
+```
+
+Q.2: Complete the arguments for `unnest_tokens` to count all of the words in the corpus. Answer the question below.
+```{r q2, echo=TRUE, tidy=TRUE}
+words <- data %>% unnest_tokens() # Modify unnest_tokens
+
+# Do not modify code below
+words %>% count(word, sort = TRUE) %>%
+  slice(1:10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) + geom_col() +
+  labs(y = NULL, x='Term frequency', title=paste("10 most frequent terms in corpus"))
+```
+What are the top three most frequent words? Explain why this result is expected based on Zipf's law. Answer: 
+
+Q.3: Let's remove the stopwords. If you run the code below, you will see that the term `amp` is the most frequent term. Add this term to the `stop_words` list. Hint: You will need to create an object with the same structure as `stop_words` then merge them together. You can add any string in the lexicon column as it is ignored in the join. Finally, complete the filter argument to retain only stopwords from the "snowball" lexicon.
+```{r q3, echo=TRUE, tidy=TRUE}
+data(stop_words) 
+stop_words <- stop_words
+
+stop_words <- # Add "amp" to stopwords
+    
+stop_words <- stop_words %>% filter() # Modify
+
+# Do not modify code below
+words.2 <- words %>% anti_join(stop_words)
+
+words.2 %>% count(word, sort = TRUE) %>%
+  slice(1:10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word)) + geom_col() +
+  labs(y = NULL, x='Term frequency', title=paste("10 most frequent terms"), caption = "Stopwords removed.")
+```
+
+Q4. Let's analyze how the language used by each politician varies and how this varies over time. Complete the `group_by` statement to count the words used by each politician in each year. Next, assign `X` to be the name of one of the people in the dataset. Answer the question below.
+```{r q4, echo=TRUE, tidy=TRUE}
+person.year.counts <- data %>% unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  count(word, screen_name, year)
+
+top_terms <- 
+  person.year.counts %>%
+  group_by() %>% # Add arguments to group_by
+  top_n(10, n) %>%
+  ungroup() %>%
+  arrange(word, -n)
+
+X <- "" # Choose the screen name of a politician
+top_terms  %>% filter(screen_name == X) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = factor(year))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ year, scales = "free") + scale_fill_viridis_d() +
+  coord_flip() + labs(y="Word frequency", x="Term", title = paste("Top 5 words used by ", X,   " in 2020-2021"))
+```
+What do the results tell you about this politician? Does their language vary between 2020 and 2021? Answer:
+
+Q5. Modify the filter to look at another politician. Answer the questions below.
+```{r q5, echo=TRUE, tidy=TRUE}
+Y <- "" # Choose another figure here
+top_terms %>% filter(screen_name == Y) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = factor(year))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ year, scales = "free") + scale_fill_viridis_d() +
+  coord_flip() + labs(y="Word frequency", x="Term", title = paste("Top 5 words used by", Y, "in each year"))
+```
+Do you notice any differences between the two politicians?  Answer:
+
+Q6. Let's create a TF-IDF weighted document-term matrix, where each document is a politician-year pair. This will help to compare how politicians use language. Review the documentation for the `unite` function. Next, add arguments to the `unite` function to create a new column called `person_year` where the value is the string for the person's handle and the year, e.g "AOC_2021". Make sure to include an argument to avoid dropping the original columns.
+```{r q6, echo=TRUE, tidy=TRUE}
+# Let's add a column with the total frequency of each word
+word.totals <- person.year.counts %>% 
+  group_by(word) %>% 
+  summarize(total = sum(n))
+
+person.year <- left_join(person.year.counts, word.totals) %>%
+  unite() # add arguments here
+
+tfidf <- person.year %>%  filter(total >= 10) %>% 
+  bind_tf_idf(word, person_year, n)
+```
+
+Q7. By weighting terms by their TF-IDF scores, where a document is treated as all the lines by a politician in a given year, we can better distinguish the language unique to particular politicians. Run this chunk and answer the questions below.
+```{r q7, echo=TRUE, tidy=TRUE}
+# Do not modify this chunk
+top_tfidf <- 
+  tfidf %>%
+  group_by(screen_name, year) %>%
+  top_n(5, tf_idf) %>%
+  ungroup() %>%
+  arrange(word, -tf_idf)
+
+top_tfidf %>% filter(screen_name == X) %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  ggplot(aes(word, tf_idf, fill = factor(year))) +
+  geom_col(show.legend = FALSE) + 
+  facet_wrap(~ year, scales = "free") + scale_fill_viridis_d() +
+  coord_flip() + labs(y="TF-IDF score", x="Term", title = paste("Top 5 words used by", X, "in each year "))
+
+top_tfidf %>% filter(screen_name == Y) %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  ggplot(aes(word, tf_idf, fill = factor(year))) +
+  geom_col(show.legend = FALSE) + 
+  facet_wrap(~ year, scales = "free") + scale_fill_viridis_d() +
+  coord_flip() + labs(y="TF-IDF score", x="Term", title = paste("Top 5 words used by", Y, "in each year"))
+```
+How do the results vary now that we have used TF-IDF weighting? What do the results tell you about these two politicians? Answer: 
+
+We can use this data to construct a TF-IDF weighted document-term matrix (DTM).
+```{r dtm, echo=TRUE, tidy=TRUE}
+### Do not modify this chunk
+M <- tfidf %>%
+  cast_dtm(person_year, word, tf_idf) %>% as.matrix()
+
+for (i in 1:dim(M)[1]) { # Normalizing every column
+  M[i,] <- M[i,]/sqrt(sum(M[i,]^2))
+}
+
+sims <- M %*% t(M)
+```
+
+Q8. Using the similarity matrix, find the 10 most similar politician-year pairs. Make sure to exclude any self-similarities (e.g. Bernie Sanders is the most similar politician to Bernie Sanders). Print each pair and the similarity score. Make sure to ignore any entries on the diagonal.
+```{r q8, echo=TRUE, tidy=TRUE}
+### Your code below
+```
+What do you observe when you look at the results? Do these similarities make any sense given the differences between these figures' political views? Answer: 
+
+# *Part 2: Word embeddings*
+
+Let's continue our analysis using word embeddings.
+
+Q9. Use the `word2vec` function to train an embedding model using the *entire corpus*. Complete the function to use the skip-gram model with 100 dimensional vectors, a window size of 3, and 5 negative samples. Set the minimum word count to equal 10.
+```{r q9, echo=TRUE, tidy=TRUE}
+model <- word2vec::word2vec(x = tolower(data$text), 
+                  type=, # complete argument
+                  dim=, # complete argument
+                  window = , # complete argument
+                  negative= , # complete argument
+                  iter=10L)
+```
+
+Let's analyze how politicians are represented in this model. Choose a keyword and run the chunk (you will need to ensure the term you use is in the vocabulary, you will get an error if a word is not recognized). Answer the question below.
+```{r q9, echo=TRUE, tidy=TRUE}
+keyword <- "" # Select an appropriate term here
+predict(model, keyword, type = "nearest", top_n = 20)
+```
+Describe what the results show. Do these results make any sense? Answer:
+
+# *Part 3: Topic models*
+
+For the final part of this assignment you will train a topic model on the corpus and analyze the results. We will use a structural topic model with prevalence and content covariates.
+
+The code below creates a new variable called `party`, indicating whether a politician is a Democrat or a Republican. To help make the computation easier we will restrict our focus to the subset of tweets that were written in 2021.
+
+Q.13
+Modify the `textProcessor` function to use the same stopwords as  above. You will also need to modify the `removestopwords` argument, otherwise the model will remove the stopwords above *and* those in the preset lexicon. *Note: It make take a couple of minutes for this chunk to run.*
+```{r q13, echo=TRUE, tidy=TRUE}
+data$party <- factor(ifelse(data$screen_name %in% c("JoeBiden","KamalaHarris","SpeakerPelosi","BernieSanders","AOC","SenSchumer"), "Democrat", "Republican"))
+data <- data %>% filter(year == 2021)
+meta <- data %>% select(party, screen_name, month)
+processed.docs <- textProcessor(data$text, metadata = meta) # Add the two stopwords arguments
+output <- prepDocuments(processed.docs$documents, processed.docs$vocab, processed.docs$meta, lower.thresh = 10)
+```
+
+Q.14. Complete the `stm` function to run an initial topic modeling. Pick a value for `K` and modify the relevance argument to consist of a non-linear function of the year. Add arguments to allow prevalence to vary as a function of month and party and content to vary as a function of party.
+
+*This code may take up to 5 minutes to run. I recommend testing it using a sub-sample of the data before running it for the entire dataset.*
+```{r q14, echo=TRUE, tidy=TRUE}
+K <- # Choose k (Somewhere between 10 and 100 is recommended)
+fit <- stm(documents = output$documents, vocab = output$vocab, 
+           K=K,
+           data = output$meta, 
+           prevalence = , # Add prevalence formula
+           content = , # Add content formula
+           verbose = TRUE
+           )
+```
+
+Q.15. We can plot the topic proportions to get the topics that occur most frequently. 
+
+We can extract these values by manipulating results of the `make.dt` function, which provides us with a vector of topic proportions for each document. This code uses `doc.props` and `doc.count` create a object creating the average proportion of each topic over all documents (the result should have the dimension `K x 1`). The results the 5 topics with the highest proportions in the corpus. 
+
+Add arguments to `summarize_if` to take the sum of all numeric columns in `doc.props`.
+```{r q15, echo=TRUE, tidy=TRUE}
+plot(fit, type = "summary")
+
+doc.props <- make.dt(fit) # gets document proportions
+doc.count <- dim(doc.props)[1] # gets number of documents
+top5<-  doc.props %>% summarize_if() %>% # complete arguments
+  select_if(str_detect(names(.), "Topic")) %>%
+  divide_by(doc.count) %>% t() %>% as.data.frame() %>%
+  top_n(5)
+print(top5)
+```
+
+Q.16. Explore these five topics using any of the functions covered in lecture or in the `stm` documentation (e.g. `findThoughts`, `labelTopics`) then provide names and descriptions below.
+```{r q16, echo=TRUE, tidy=TRUE}
+
+```
+Name and describe each of the five topics.
+
+  1. Name: Description:
+  2. Name: Description:
+  3. Name: Description:
+  4. Name: Description:
+  5. Name: Description:
+  
+Q. 17. Use the`estimateEffect` function covered in lecture to analyze the relationship between the covariate and the topic. 
+
+Modify the first argument of `estimateEffect` to specify the same formula as used for prevalence in the `stm` function. e.g. `1:K ~ a + b`.
+
+Next, modify the `topics` argument of `plot` to select the five topics covered above and change the `custom.labels` argument to contain the names you assigned to topics in the previous question.
+```{r q17, echo=TRUE, tidy=TRUE}
+prep <- estimateEffect(1:K ~ , fit, meta = output$meta) # add formula
+plot(prep, "month", method = "continuous", topics = c(), model = fit, xaxt = "n", xlab = "month",  # complete topics argument
+     labeltype = "custom", custom.labels = c()) # complete names argument
+```
+What do you notice? Are these topics stable over time or do they vary over time? Are these changes meaningful in the context of current events?
+
+Q.18 Select a topic of interest and plot the differences in content by partisanship. Answer the question below.
+```{r q18, echo=TRUE, tidy=TRUE}
+plot(fit, type="perspectives", topics=) # Add topic number
+```
+What is this topic about? Do the differences appear to be meaningful?
+
+## End
+This is the end of the assignment. Follow the submission instructions at the beginning of this document. The procedure is the same as for the previous assignments, but please read the note on line 48 carefully.
